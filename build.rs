@@ -206,29 +206,29 @@ fn cpp_flags(compiler: &cc::Tool) -> &'static [&'static str] {
 // taken.
 const ASM_TARGETS: &[AsmTarget] = &[
     AsmTarget {
-        oss: &[
-            ANDROID, FREEBSD, FUCHSIA, ILLUMOS, LINUX, NETBSD, OPENBSD, REDOX,
-        ],
+        oss: LINUX_ABI,
         arch: AARCH64,
         perlasm_format: "linux64",
     },
     AsmTarget {
-        oss: &[ANDROID, FREEBSD, HORIZON, LINUX, NETBSD],
+        oss: LINUX_ABI,
         arch: ARM,
         perlasm_format: "linux32",
     },
     AsmTarget {
-        oss: &[ANDROID, FREEBSD, HAIKU, HURD, LINUX, NETBSD, OPENBSD, REDOX],
+        oss: LINUX_ABI,
         arch: X86,
         perlasm_format: "elf",
     },
     AsmTarget {
-        oss: &[
-            ANDROID, DRAGONFLY, FREEBSD, FUCHSIA, HAIKU, HURD, ILLUMOS, LINUX, NETBSD, OPENBSD,
-            REDOX, SOLARIS,
-        ],
+        oss: LINUX_ABI,
         arch: X86_64,
         perlasm_format: "elf",
+    },
+    AsmTarget {
+        oss: &["horizon"],
+        arch: ARM,
+        perlasm_format: "linux32",
     },
     AsmTarget {
         oss: APPLE_ABI,
@@ -274,19 +274,22 @@ impl AsmTarget {
     }
 }
 
-const ANDROID: &str = "android";
-const DRAGONFLY: &str = "dragonfly";
-const FREEBSD: &str = "freebsd";
-const FUCHSIA: &str = "fuchsia";
-const HAIKU: &str = "haiku";
-const HORIZON: &str = "horizon";
-const HURD: &str = "hurd";
-const ILLUMOS: &str = "illumos";
-const LINUX: &str = "linux";
-const NETBSD: &str = "netbsd";
-const OPENBSD: &str = "openbsd";
-const REDOX: &str = "redox";
-const SOLARIS: &str = "solaris";
+/// Operating systems that have the same ABI as Linux on every architecture
+/// mentioned in `ASM_TARGETS`.
+const LINUX_ABI: &[&str] = &[
+    "android",
+    "dragonfly",
+    "freebsd",
+    "fuchsia",
+    "haiku",
+    "hurd",
+    "illumos",
+    "netbsd",
+    "openbsd",
+    "linux",
+    "redox",
+    "solaris",
+];
 
 const WIN32N: &str = "win32n";
 const NASM: &str = "nasm";
@@ -589,14 +592,8 @@ fn obj_path(out_dir: &Path, src: &Path) -> PathBuf {
 }
 
 fn configure_cc(c: &mut cc::Build, target: &Target, c_root_dir: &Path, include_dir: &Path) {
+    let _ = c.compiler("clang");
     let compiler = c.get_compiler();
-    // FIXME: On Windows AArch64 we currently must use Clang to compile C code
-    let compiler = if target.os == WINDOWS && target.arch == AARCH64 && !compiler.is_like_clang() {
-        let _ = c.compiler("clang");
-        c.get_compiler()
-    } else {
-        compiler
-    };
 
     let _ = c.include(c_root_dir.join("include"));
     let _ = c.include(include_dir);
@@ -623,14 +620,16 @@ fn configure_cc(c: &mut cc::Build, target: &Target, c_root_dir: &Path, include_d
     }
 
     // Allow cross-compiling without a target sysroot for these targets.
-    if (target.arch == WASM32)
-        || (target.os == "linux" && target.env == "musl" && target.arch != X86_64)
-    {
+    if target.os == "linux" && target.env == "musl" && target.arch != X86_64 {
         // TODO: Expand this to non-clang compilers in 0.17.0 if practical.
         if compiler.is_like_clang() {
             let _ = c.flag("-nostdlibinc");
             let _ = c.define("RING_CORE_NOSTDLIBINC", "1");
         }
+    }
+
+    if target.os == WASM32 {
+        let _ = c.define("RING_CORE_NOSTDLIBINC", "0");
     }
 
     if target.force_warnings_into_errors {
